@@ -1,7 +1,7 @@
 #IFNDEF CREATEHALFEDGE_H
 #DEFINE CREATEHALFEDGE_H
 
-#include "HEstruct.h"
+
 
 
 
