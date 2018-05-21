@@ -154,6 +154,8 @@ void createHalfEdge(const Eigen::MatrixXd &V, const Eigen::MatrixXi &F, std::vec
             }
         }
     }
+
+    std::cout << "Half edge structure created" << std::endl << std::endl;
 }
 
 
@@ -254,7 +256,14 @@ void getMeanCurv(const Eigen::MatrixXd &V, const SparseMat &L, Eigen::VectorXd &
 
 
 
+void trueLaplaceBeltrami(const Eigen::MatrixXd &V, const Eigen::MatrixXi &F, SparseMat &L) {
+    SparseMat Mtrue, Mtrue_inv, Ctrue;
+    igl::massmatrix(V,F,igl::MASSMATRIX_TYPE_BARYCENTRIC,Mtrue);
+    igl::invert_diag(Mtrue,Mtrue_inv);
+    igl::cotmatrix(V,F,Ctrue);
 
+    L = Mtrue_inv * Ctrue;
+}
 
 
 // ===============================================================================================
@@ -618,28 +627,40 @@ void medialSkeletonisationFlow (Eigen::MatrixXd &V, const Eigen::MatrixXi &F, co
 // ==================== main function
 int main(int argc, char *argv[])
 {
-    Eigen::MatrixXd V, V_bunny, V_bumpy, V_fertility;
-    Eigen::MatrixXi F, F_bunny, F_bumpy, F_fertility;
+    Eigen::MatrixXd V, V_mesh;
+    Eigen::MatrixXi F, F_mesh;
 
-    // Load the mesh
-    igl::readOFF("/Users/jimmy/GoogleDrive/MScRobotics/GV18_AcquisitionProcessing3DGeometry/cw3/meshes/sindorelax.off", V_fertility, F_fertility);
-    V = V_fertility;
-    F = F_fertility;
+    // mesh path
+    std::string meshPath = "/Users/jimmy/GoogleDrive/MScRobotics/GV18_AcquisitionProcessing3DGeometry/cw3/meshes/";
+    // mesh name
+    std::string meshName;
+
+    // ask user to choose a mesh in terminal
+    int meshIdx;
+    do {
+        std::cout << "\n Choose a mesh (0 - fertility, 1 - bunny, 2 - sindorelax, 3 - arm): ";
+        std::cin >> meshIdx;
+
+        switch (meshIdx) {
+            case 0: meshName = "fertility.off"; break;
+            case 1: meshName = "bunny.off"; break;
+            case 2: meshName = "sindorelax.off"; break;
+            case 3: meshName = "arm.off"; break;
+            default: std::cout << "re-enter number.\n"; break;
+        }
+    } while (meshName.empty());
+
+    std::cout << "\n You chose " << meshName << std::endl;
+    // addd mesh name to path
+    meshPath += meshName;
+
+    // load mesh
+    igl::readOFF(meshPath, V_mesh, F_mesh);
+
+    V = V_mesh;
+    F = F_mesh;
     // print size
     std::cout << std::endl << "Mesh size: " << "V: " << V.rows() << " x " << V.cols() <<  ", F: " << F.rows() << " x " << F.cols() << std::endl << std::endl;
-
-
-    // ---------- build the half edge data structure
-
-    long vNum = V.rows();
-    // vector of vertex pointers
-    std::vector<HE_vert*> HE_vertList(vNum);
-
-    // build half-edge structure from V and F
-    createHalfEdge(V, F, HE_vertList);
-
-    std::cout << "Half edge structure created" << std::endl << std::endl;
-    // --------------------------------------------------
 
     // create viewer
     igl::viewer::Viewer viewer;
@@ -647,7 +668,15 @@ int main(int argc, char *argv[])
     viewer.data.set_mesh(V, F);
 
 
-    // ---------- tasks
+    // ---------- build the half edge data structure
+    long vNum = V.rows();
+
+    // vector of vertex pointers
+    std::vector<HE_vert*> HE_vertList(vNum);
+    // build half-edge structure from V and F
+    createHalfEdge(V, F, HE_vertList);
+    // --------------------------------------------------
+
 
     // get the voronoi poles
     Eigen::MatrixXd vPoles = getVoronoiPoles(V, F);
@@ -685,8 +714,8 @@ int main(int argc, char *argv[])
         // ----- reload button
         viewer.ngui->addButton("Reload", [&]() {
             // reset mesh
-            V = V_fertility;
-            F = F_fertility;
+            V = V_mesh;
+            F = F_mesh;
             // reset parameters to initial condition
             std::fill(fixedVerts.begin(), fixedVerts.end(), false);
             updateParameters(fixedVerts, w_L, w_H, w_P, W_L, W_H, W_P);
@@ -708,6 +737,7 @@ int main(int argc, char *argv[])
         viewer.ngui->addButton("Skeletonise", [&]() {
             // update laplaceBeltrami
             buildLaplaceBeltrami(HE_vertList, V, laplaceBeltrami);
+            // trueLaplaceBeltrami(V, F, laplaceBeltrami);
             // contraction
             // discreteMeanCurvatureFlow(V, F, laplaceBeltrami, W_H);
             medialSkeletonisationFlow(V, F, laplaceBeltrami, vPoles, W_L, W_H, W_P);
@@ -735,3 +765,23 @@ int main(int argc, char *argv[])
     // launch viewer
     viewer.launch();
 }
+
+
+
+
+
+
+//    // print half edge pointersfor debugging
+//    for (auto it = HE_vertList.begin(); it != HE_vertList.end(); it++){
+//        std::cout << "the " << (it - HE_vertList.begin()) << "th vertex" << std::endl;
+//        std::cout << (*it)->coord << std::endl;
+//        std::cout << "index in V: " << (*it)->vInd << std::endl;
+//        std::cout << *it << std::endl;
+//        std::cout << (*it)->edge << std::endl;
+//        std::cout << (*it)->edge->pairEdge << std::endl;
+//        std::cout << (*it)->edge->pairEdge->adjFace << std::endl;
+//        std::cout << (*it)->edge->endVert << std::endl;
+//        std::cout << (*it)->edge->adjFace << std::endl;
+//        std::cout << (*it)->edge->nextEdge << std::endl;
+//        std::cout << (*it)->edge->adjFace->edge << std::endl;
+//    }
