@@ -53,11 +53,11 @@ if (APPLE)
 endif()
 
 # wenzel: changes begin
-add_library(glfw_objects OBJECT ${glfw_SOURCES} ${glfw_HEADERS})
+#add_library(glfw_objects OBJECT ${glfw_SOURCES} ${glfw_HEADERS})
 if (BUILD_SHARED_LIBS)
   set_target_properties(glfw_objects PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
-add_library(glfw $<TARGET_OBJECTS:glfw_objects>)
+#add_library(glfw $<TARGET_OBJECTS:glfw_objects>)
 # wenzel : changes end
 
 set_target_properties(glfw PROPERTIES

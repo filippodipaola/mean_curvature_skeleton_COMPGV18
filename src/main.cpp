@@ -1,9 +1,26 @@
+// STD LIBRARIES
 #include <iostream>
-#include <igl/viewer/Viewer.h>
+#include <numeric>
+#include <math.h>
+#include <random>
+// LIBIGL Imports
 #include <igl/edges.h>
 #include <igl/cotmatrix.h>
+#include <igl/readOFF.h>
+#include <igl/viewer/Viewer.h>
+#include <igl/readPLY.h>
+#include <igl/writeOFF.h>
+#include <igl/per_vertex_normals.h>
+#include <igl/massmatrix.h>
+#include <igl/invert_diag.h>
+#include <igl/jet.h>
+#include <igl/per_vertex_normals.h>
+
+// NANOGUI Imports
 #include <nanogui/formhelper.h>
 #include <nanogui/screen.h>
+#include "tutorial_shared_path.h"
+// EIGEN Imports
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 #include <Eigen/Geometry>
@@ -11,20 +28,6 @@
 #include <Eigen/StdVector>
 #include <Eigen/SparseCholesky>
 #include <Eigen/OrderingMethods>
-#include <numeric>
-#include <math.h>
-#include <random>
-#include <SymEigsSolver.h>
-#include <GenEigsSolver.h>
-#include <SymGEigsSolver.h>
-#include <MatOp/SparseSymMatProd.h>
-#include <MatOp/SparseGenMatProd.h>
-#include <MatOp/SparseCholesky.h>
-
-#include <igl/massmatrix.h>
-#include <igl/invert_diag.h>
-#include <igl/per_vertex_normals.h>
-
 
 // Qhull Library Imports.
 #include "libqhullcpp/QhullError.h"
@@ -40,6 +43,7 @@
 #include "libqhullcpp/RboxPoints.h"
 #include "libqhullcpp/QhullPoints.h"
 
+#include <nanoflann.hpp>
 //using namespace Eigen;
 
 
@@ -275,6 +279,7 @@ void displayMesh(const Eigen::MatrixXd &V, const Eigen::MatrixXi &F, igl::viewer
     // Plot the mesh
     viewer.data.set_mesh(V, F);
 }
+
 
 
 // ========== function to get voronoi poles
@@ -621,6 +626,55 @@ void medialSkeletonisationFlow (Eigen::MatrixXd &V, const Eigen::MatrixXi &F, co
 }
 
 
+// Extension function, used to compare Nearest neighbour distances.
+
+Eigen::MatrixXd colourise_mesh_skeletons(Eigen::MatrixXd &V, Eigen::MatrixXd &V_skeleton) {
+    // Create the colours matrix, used at the end.
+    Eigen::MatrixXd C(V.rows(),V.cols());
+    // Create a vector to store the distances between the two closest points.
+    Eigen::VectorXd distances(V.rows());
+    // Create the KDTree object, with the argument of an Dynamic Eigen Matrix.
+    typedef nanoflann::KDTreeEigenMatrixAdaptor< Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic> >  my_kd_tree_t;
+    // Initialise the KDTree object, set max leaves to 10 to allow for fast computation.
+    my_kd_tree_t   V2_index(V_skeleton, 10 /* max leaf */ );
+    // Populate the KDTree with the points from the skeleton mesh.
+    V2_index.index->buildIndex();
+
+    // Declare the query point, which *must* be a stupid standard vector.
+    std::vector<double> query_pt_1(3);
+    // Declare a 3d vector for the nearest found point
+    Eigen::Vector3d nearest_point;
+
+    for (std::size_t x = 0; x<V.rows(); x++ ) {
+        for (size_t y = 0; y < 3; y++) {
+            // Populate the query point.
+            query_pt_1[y] = V(x, y);
+        }
+        // Declare the number of results for KNN, in this case we want only 1.
+        const size_t num_results = 1;
+        // Declare the vector that will hold the return point.
+        std::vector<size_t> return_index(num_results);
+        std::vector<double> out_dists_sqr(num_results);
+        //Perform the near neighbour calculation using NANOFLANN.
+        nanoflann::KNNResultSet<double> resultSet(num_results);
+
+        resultSet.init(&return_index[0], &out_dists_sqr[0]);
+        V2_index.index->findNeighbors(resultSet, &query_pt_1[0], nanoflann::SearchParams(10));
+        //std::cout << "-----------------------------------------------" << std::endl << "queryPT:= " << query_pt[0] << std::endl;
+        // Get the nearest point after the calculation has occurred.
+        nearest_point = V_skeleton.row(return_index[0]);
+
+        // Calculate the Euclidean Distance
+        double dist;
+        dist = sqrt(pow(nearest_point[0]-V(x,0),2)+pow(nearest_point[1]-V(x,1),2)+pow(nearest_point[2]-V(x,2),2));
+        distances(x) = dist;
+    }
+    // Get the colours based of the distances.
+    igl::jet(distances,true,C);
+    std::cout << "Mean distance from this skeleton: " << distances.mean() << std::endl;
+    return C;
+
+}
 
 
 // ===============================================================================================
@@ -631,7 +685,7 @@ int main(int argc, char *argv[])
     Eigen::MatrixXi F, F_mesh;
 
     // mesh path
-    std::string meshPath = "/Users/jimmy/GoogleDrive/MScRobotics/GV18_AcquisitionProcessing3DGeometry/cw3/meshes/";
+    std::string meshPath = "/home/osboxes/libigl/tutorial/shared/";
     // mesh name
     std::string meshName;
 
@@ -749,6 +803,19 @@ int main(int argc, char *argv[])
             displayMesh(V, F, viewer);
         });
 
+        viewer.ngui->addButton("Colourise",[&]() {
+            // Colourise based on the current state of the skeletonised mesh.
+            // Can be done at any point, recommended to do when you've skeletonised first
+            Eigen::MatrixXd C;
+            // Colourise based of the distance between the original mesh and the skeleton.
+            C = colourise_mesh_skeletons(V_mesh, V);
+            // Reset the mesh, to show the original not skeletonised.
+            displayMesh(V_mesh, F_mesh, viewer);
+            // Set the colours, this gets reset once you skeletonise a second time.
+            viewer.data.set_colors(C);
+
+        });
+
         // ----- text boxes
         viewer.ngui->addVariable("w_L: ", w_L);
         viewer.ngui->addVariable("w_H: ", w_H);
@@ -785,3 +852,4 @@ int main(int argc, char *argv[])
 //        std::cout << (*it)->edge->nextEdge << std::endl;
 //        std::cout << (*it)->edge->adjFace->edge << std::endl;
 //    }
+
