@@ -14,7 +14,11 @@
 #include <igl/massmatrix.h>
 #include <igl/invert_diag.h>
 #include <igl/jet.h>
-#include <igl/per_vertex_normals.h>
+#include <igl/triangle/triangulate.h>
+#include <igl/edges.h>
+#include <igl/doublearea.h>
+#include <igl/internal_angles.h>
+#include <igl/is_irregular_vertex.h>
 
 // NANOGUI Imports
 #include <nanogui/formhelper.h>
@@ -628,7 +632,7 @@ void medialSkeletonisationFlow (Eigen::MatrixXd &V, const Eigen::MatrixXi &F, co
 
 // Extension function, used to compare Nearest neighbour distances.
 
-Eigen::MatrixXd colourise_mesh_skeletons(Eigen::MatrixXd &V, Eigen::MatrixXd &V_skeleton) {
+Eigen::MatrixXd colourise_mesh_skeletons(Eigen::MatrixXd &V, Eigen::MatrixXd &V_skeleton, double &average_distance) {
     // Create the colours matrix, used at the end.
     Eigen::MatrixXd C(V.rows(),V.cols());
     // Create a vector to store the distances between the two closest points.
@@ -671,11 +675,48 @@ Eigen::MatrixXd colourise_mesh_skeletons(Eigen::MatrixXd &V, Eigen::MatrixXd &V_
     }
     // Get the colours based of the distances.
     igl::jet(distances,true,C);
-    std::cout << "Mean distance from this skeleton: " << distances.mean() << std::endl;
+    average_distance = distances.mean();
+    std::cout << "Mean distance from this skeleton: " << average_distance << std::endl;
+
     return C;
 
 }
 
+//void remesh_vertices_faces(Eigen::MatrixXd &V, Eigen::MatrixXi &F ,Eigen::MatrixXd &V2, Eigen::MatrixXi &F2) {
+//    Eigen::MatrixXd E(F.rows(), 2);
+//    Eigen::MatrixXd H(1,1);
+//    H << 0,0;
+//    igl::edges(F,E);
+//    igl::triangle::triangulate(V,E,H,"a0.005q",V2,F2);
+//
+//}
+
+// Function is used to return some stats about the current mesh,
+// whether it be the original mesh or the skeletonised version.
+// The objective is to provide some more information regarding
+// the state of the skeleton and the mesh for the evaluation
+// portion of this coursework. Code taken from example 701
+// of the IGL examples.
+void get_mesh_stats(Eigen::MatrixXd &V, Eigen::MatrixXi &F, double &irregulat_vertices, double &areas, double &angles) {
+    std::vector<bool> irregular = igl::is_irregular_vertex(V,F);
+    int vertex_count = V.rows();
+    int irregular_vertex_count =
+            std::count(irregular.begin(),irregular.end(),true);
+    // Finds the ration of irregular vertices compared to the number of proper vertices.
+    irregulat_vertices  = double(irregular_vertex_count)/vertex_count;
+
+    Eigen::VectorXd area;
+    igl::doublearea(V,F,area);
+    area = area.array() /2;
+    // Finds the average area of each triangle of the mesh.
+    areas   = area.mean();
+
+    Eigen::MatrixXd angle;
+    igl::internal_angles(V,F,angle);
+    angle = 360.0 * (angle/(2*M_PI)); // Convert to degrees
+    // Returns the average internal triangle angles in the mesh.
+    angles  = angle.mean();
+}
 
 // ===============================================================================================
 // ==================== main function
@@ -685,7 +726,7 @@ int main(int argc, char *argv[])
     Eigen::MatrixXi F, F_mesh;
 
     // mesh path
-    std::string meshPath = "/home/osboxes/libigl/tutorial/shared/";
+    std::string meshPath = "models/";
     // mesh name
     std::string meshName;
 
@@ -756,8 +797,8 @@ int main(int argc, char *argv[])
     Eigen::Vector3d allMax(V.col(0).maxCoeff(), V.col(1).maxCoeff(), V.col(2).maxCoeff());
     Eigen::Vector3d allMin(V.col(0).minCoeff(), V.col(1).minCoeff(), V.col(2).minCoeff());
     double edgeThresh = 0.002 * (allMax - allMin).norm();
-
-
+    double irregulat_vertices, areas, angles, average_distance;
+    irregulat_vertices = areas = angles = average_distance = 0;
 
     // ----- test viewer menu
     viewer.callback_init = [&](igl::viewer::Viewer &viewer) {
@@ -801,6 +842,7 @@ int main(int argc, char *argv[])
             updateParameters(fixedVerts, w_L, w_H, w_P, W_L, W_H, W_P);
             // display
             displayMesh(V, F, viewer);
+            get_mesh_stats(V,F,irregulat_vertices,areas,angles);
         });
 
         viewer.ngui->addButton("Colourise",[&]() {
@@ -808,7 +850,7 @@ int main(int argc, char *argv[])
             // Can be done at any point, recommended to do when you've skeletonised first
             Eigen::MatrixXd C;
             // Colourise based of the distance between the original mesh and the skeleton.
-            C = colourise_mesh_skeletons(V_mesh, V);
+            C = colourise_mesh_skeletons(V_mesh, V, average_distance);
             // Reset the mesh, to show the original not skeletonised.
             displayMesh(V_mesh, F_mesh, viewer);
             // Set the colours, this gets reset once you skeletonise a second time.
@@ -821,7 +863,13 @@ int main(int argc, char *argv[])
         viewer.ngui->addVariable("w_H: ", w_H);
         viewer.ngui->addVariable("w_P: ", w_P);
         viewer.ngui->addVariable("edgeThresh: ", edgeThresh, false);
-
+        // Calculate the mesh stats.
+        get_mesh_stats(V,F,irregulat_vertices,areas,angles);
+        viewer.ngui->addGroup("Mesh Stats");
+        viewer.ngui->addVariable("Irregular Vertices Ratio: ", irregulat_vertices);
+        viewer.ngui->addVariable("Average Triangle Area: ", areas);
+        viewer.ngui->addVariable("Average Interior Angles in Degrees: ", angles);
+        viewer.ngui->addVariable("Average Distance from Skeleton: ", average_distance);
         // generate layout
         viewer.screen->performLayout();
 
